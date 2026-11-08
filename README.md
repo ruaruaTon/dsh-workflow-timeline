@@ -2,7 +2,8 @@
 
 ZCode 风格的 DeepSeek Harness 工作流时间线面板：把 workflow 的阶段推进、子代理派生与完成状态画成一条实时时间线。
 
-![截图占位：工作流时间线](docs/screenshot-timeline.png)
+<img width="2118" height="885" alt="image" src="https://github.com/user-attachments/assets/bd79ea3a-4191-4771-aa70-47454a3e5508" />
+
 
 ## ✨ 功能
 
