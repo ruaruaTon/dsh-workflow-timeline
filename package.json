@@ -1,0 +1,54 @@
+{
+  "name": "dsh-workflow-timeline",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "工作流时间线面板（ZCode 形态）：阶段站点时间线 + 表情状态机小脸 + 侧栏/中心双入口 + 历史持久化 | ZCode-style workflow timeline panel for DeepSeek Harness",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "workflow",
+    "timeline",
+    "workflow-ui",
+    "zcode"
+  ],
+  "author": {
+    "name": "lvdong"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ruaruaTon/dsh-workflow-timeline#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ruaruaTon/dsh-workflow-timeline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ruaruaTon/dsh-workflow-timeline/issues"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  }
+}

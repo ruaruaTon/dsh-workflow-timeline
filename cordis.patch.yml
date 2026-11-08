@@ -1,0 +1,4 @@
+# workflow-timeline bundle：双面插件行（host 半 + browser 半）
+- insert:
+    - id: workflow-timeline
+      name: 'dsh-workflow-timeline'
