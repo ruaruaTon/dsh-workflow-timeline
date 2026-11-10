@@ -1,9 +1,9 @@
 {
   "name": "dsh-workflow-timeline",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": false,
   "type": "module",
-  "description": "工作流时间线面板（ZCode 形态）：阶段站点时间线 + 表情状态机小脸 + 侧栏/中心双入口 + 历史持久化 | ZCode-style workflow timeline panel for DeepSeek Harness",
+  "description": "工作流时间线面板（ZCode 形态）：阶段站点时间线 + 表情状态机小脸 + 侧栏/中心双入口 + 历史持久化 + 一键清空全部（立即落盘） | ZCode-style workflow timeline panel for DeepSeek Harness",
   "keywords": [
     "dsh",
     "dsh-plugin",

@@ -1,4 +1,7 @@
-/* @local/workflow-timeline · client v4（ZCode 横向时间线 + 完整表情状态机 + 点击开子会话） */
+/* @local/workflow-timeline · client v6（ZCode 横向时间线 + 表情状态机 + 点击开子会话 + phase 模型覆盖真通 + 头部「🗑 清空全部」：
+   ⚙ 保存写 ~/.dsh/workflow-overrides.json（workflowName+phaseTitle 键控，Router 下发时转 args.modelOverrides），
+   显示源三级回显=覆盖 > meta.phases 声明 > 继承全局；
+   🗑 清空全部=POST api/workflow-timeline/delete-all，host 立即落盘，重启不复活） */
 window.__ModuleLoader__.load({
   id: "@local/workflow-timeline",
   factory(require) {
@@ -208,12 +211,17 @@ window.__ModuleLoader__.load({
     }
 
     /* ══════════ 样式 ══════════ */
-    const STYLE_ID = "wft-style-v4";
+    const STYLE_ID = "wft-style-v6";
     const CSS = [
       ".wft-panel{display:flex;flex-direction:column;height:100%;overflow:hidden;color:var(--dsw-alias-label-foreground,rgba(255,255,255,.87));font-size:13px}",
       ".wft-head{display:flex;align-items:center;gap:10px;padding:14px 18px 10px;flex:none}",
       ".wft-title{font-weight:600;font-size:15px}",
       ".wft-sub{font-size:11px;opacity:.55;font-family:Consolas,monospace}",
+      ".wft-head-spacer{flex:1 1 auto}",
+      ".wft-clear{display:flex;align-items:center;gap:5px;background:transparent;border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.6);border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer;flex:0 0 auto;transition:color .15s,border-color .15s,background .15s}",
+      ".wft-clear:hover{border-color:#f85149;color:#f85149;background:rgba(248,81,73,.08)}",
+      ".wft-clear:disabled{opacity:.45;cursor:default}",
+      ".wft-clear:disabled:hover{border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.6);background:transparent}",
       ".wft-live{width:8px;height:8px;border-radius:50%;background:#3fb950}",
       ".wft-live.running{background:#e3a33a;animation:wft-beat 1.6s cubic-bezier(.22,.61,.36,1) infinite}",
       "@keyframes wft-beat{50%{box-shadow:0 0 0 5px rgba(205,137,0,.18)}}",
@@ -405,7 +413,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "wft-run-body" },
           h("div", { className: "wft-track" },
             groups.map(function (key, gi) {
-              return h(Station, { key: "g" + gi, name: key, agents: byPhase.get(key), onOpen: onOpen, settings: props.settings, models: props.models });
+              return h(Station, { key: "g" + gi, name: key, agents: byPhase.get(key), onOpen: onOpen, settings: props.settings, models: props.models, workflowName: run.name, metaPhases: run.metaPhases, overrides: props.overrides });
             })
           ),
           run.phases.length > 0 ? h("div", { className: "wft-foot" }, "phases: " + run.phases.map(function (p) { return p.title; }).join(" → ")) : null
@@ -435,11 +443,53 @@ window.__ModuleLoader__.load({
       return { phases: s.phases, ready: s.ready, save: save };
     }
 
+    /* ═══ phase 模型覆盖（workflow-overrides.json，真通：Router 下发时读它转 args.modelOverrides）═══ */
+    function useOverrides() {
+      const st = React.useState({ map: {}, ready: false });
+      const s = st[0], setS = st[1];
+      React.useEffect(function () {
+        fetch("api/workflow-timeline/overrides", { cache: "no-store" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) { setS({ map: j && j.overrides && typeof j.overrides === "object" ? j.overrides : {}, ready: true }); })
+          .catch(function () { setS({ map: {}, ready: true }); });
+      }, []);
+      const save = function (workflowName, phaseTitle, provider, model) {
+        return fetch("api/workflow-timeline/overrides", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ workflowName: workflowName, phaseTitle: phaseTitle, provider: provider, model: model })
+        }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+          if (j && j.ok && j.overrides) setS({ map: j.overrides, ready: true });
+          return !!(j && j.ok);
+        }).catch(function () { return false; });
+      };
+      return { map: s.map, ready: s.ready, save: save };
+    }
+
     function Station(props) {
       const agents = props.agents, name = props.name, onOpen = props.onOpen, settings = props.settings, models = props.models || [];
-      const cfg = settings && settings.phases ? settings.phases.find(function (p) { return p.name === name; }) : undefined;
-      const eds = React.useState({ editing: false, model: cfg ? (cfg.model || "") : "", concurrency: cfg ? (cfg.concurrency || 4) : 4, msg: "" });
+      const workflowName = props.workflowName || "", metaPhases = Array.isArray(props.metaPhases) ? props.metaPhases : [];
+      const overrides = props.overrides || { map: {}, save: function () { return Promise.resolve(false); } };
+      // 覆盖 > meta.phases 声明 > 继承全局
+      function overrideOf() {
+        try { const wf = overrides.map ? overrides.map[workflowName] : undefined; return wf && wf[name] ? wf[name] : null; } catch (e) { return null; }
+      }
+      function declaredOf() {
+        for (let i = 0; i < metaPhases.length; i++) { const p = metaPhases[i]; if (p && p.title === name) return p; }
+        return null;
+      }
+      function valOf(entry) {
+        if (!entry) return "";
+        const p = entry.provider || "", m = entry.model || "";
+        return p ? p + "/" + m : m;
+      }
+      function effectiveVal() { return valOf(overrideOf()) || valOf(declaredOf()) || ""; }
+      const eds = React.useState({ editing: false, model: "", concurrency: 4, msg: "" });
       const ed = eds[0], setEd = eds[1];
+      function deriveEditor() {
+        const cfg0 = settings && settings.phases ? settings.phases.find(function (p) { return p.name === name; }) : undefined;
+        return { editing: true, model: effectiveVal(), concurrency: cfg0 ? (cfg0.concurrency || 4) : 4, msg: "" };
+      }
       const pills = agents.map(function (a) { return { seq: a.seq, label: a.label, status: a.status, childId: a.childId }; });
       const roster = rosterOf(pills);
       const failed = pills.filter(function (p) { return p.status === "failed"; }).length;
@@ -448,19 +498,33 @@ window.__ModuleLoader__.load({
       const lamp = failed > 0 ? "failed" : running > 0 ? "running" : "done";
       const inpStyle = { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)", color: "inherit", borderRadius: 6, padding: "3px 7px", fontSize: 11, outline: "none" };
       function doSave() {
-        const phase = { name: name, model: ed.model, concurrency: Math.max(1, Math.min(16, Number(ed.concurrency) || 4)) };
-        settings.save(phase).then(function (ok) {
-          setEd(function (p) { return Object.assign({}, p, { msg: ok ? "已保存（下次运行生效）" : "保存失败" }); });
+        const val = (ed.model || "").trim();
+        const i = val.indexOf("/");
+        const provider = i > 0 ? val.slice(0, i) : "";
+        const model = i > 0 ? val.slice(i + 1) : val;
+        const conc = Math.max(1, Math.min(16, Number(ed.concurrency) || 4));
+        Promise.all([
+          overrides.save(workflowName, name, provider, model),
+          settings.save({ name: name, model: "", concurrency: conc })
+        ]).then(function (rs) {
+          const ok = rs[0] && rs[1];
+          setEd(function (p) { return Object.assign({}, p, { msg: ok ? "已保存，下次下发生效" : "保存失败" }); });
         });
       }
+      const ovNow = overrideOf(), declNow = declaredOf(), cfgShow = settings && settings.phases ? settings.phases.find(function (p) { return p.name === name; }) : undefined;
+      const effVal = effectiveVal();
+      const effSrc = ovNow ? "覆盖" : (declNow && valOf(declNow)) ? "声明" : "继承";
+      const optionVals = {};
+      models.forEach(function (m) { const v = m.provider ? m.provider + "/" + m.id : m.id; optionVals[v] = true; });
+      const extraOption = effVal && !optionVals[effVal] ? [h("option", { key: "__eff", value: effVal }, effVal + "（当前生效值）")] : [];
       return h("div", { className: "wft-station" },
         h("div", { className: "wft-station-label" },
           h("span", { style: { width: 9, height: 9, borderRadius: "50%", flex: "0 0 auto", background: failed > 0 ? "#f85149" : running > 0 ? "#e3a33a" : "#3fb950" } }),
           h("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" } }, name),
           h("span", { className: "wft-station-cnt" }, done + "✓ " + running + "◌ " + (failed ? failed + "✗" : "")),
           h("button", {
-            title: "配置该阶段（模型/并发）",
-            onClick: function () { setEd(function (p) { return Object.assign({}, p, { editing: !p.editing }); }); },
+            title: "配置该阶段（模型/并发）——模型保存写入覆盖文件，下次下发生效",
+            onClick: function () { setEd(function (p) { return p.editing ? Object.assign({}, p, { editing: false }) : deriveEditor(); }); },
             style: { marginLeft: 6, background: "transparent", border: "1px solid rgba(255,255,255,.15)", color: "inherit", borderRadius: 5, padding: "0 6px", fontSize: 11, cursor: "pointer", opacity: .8, flex: "0 0 auto" }
           }, "⚙")
         ),
@@ -468,8 +532,8 @@ window.__ModuleLoader__.load({
           h("span", { className: "wft-lamp " + lamp }),
           h("span", { className: "wft-rail-line" })
         ),
-        cfg && (cfg.model || cfg.concurrency) && !ed.editing ? h("div", { style: { fontSize: 9.5, opacity: .5, fontFamily: "Consolas,monospace", marginBottom: 2 } },
-          (cfg.model || "默认模型") + " ×" + cfg.concurrency) : null,
+        !ed.editing ? h("div", { title: "模型来源：覆盖 > meta.phases 声明 > 继承全局；并发为面板私有设置", style: { fontSize: 9.5, opacity: .55, fontFamily: "Consolas,monospace", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+          "▸" + effSrc + "：" + (effVal || "继承全局") + (cfgShow && cfgShow.concurrency ? " ×" + cfgShow.concurrency : "") + (ovNow ? " ✓" : "")) : null,
         ed.editing ? h("div", { className: "wft-editor", style: { display: "flex", flexDirection: "column", gap: 4, margin: "4px 0 6px", padding: 8, border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, background: "rgba(255,255,255,.03)" } },
           models.length > 0
             ? h("select", {
@@ -478,6 +542,7 @@ window.__ModuleLoader__.load({
                 style: Object.assign({}, inpStyle, { width: "100%", boxSizing: "border-box", cursor: "pointer", background: "#262626", color: "#e8e8e8" })
               },
                 h("option", { value: "" }, "默认模型（继承全局）"),
+                extraOption,
                 models.map(function (m) {
                   const val = m.provider ? m.provider + "/" + m.id : m.id;
                   return h("option", { key: val, value: val }, m.name + (m.provider ? " · " + m.provider : ""));
@@ -490,7 +555,7 @@ window.__ModuleLoader__.load({
           h("div", { className: "wft-editor-row", style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
             h("input", { type: "number", min: 1, max: 16, value: ed.concurrency, onChange: function (e) { setEd(function (p) { return Object.assign({}, p, { concurrency: e.target.value }); }); }, style: Object.assign({}, inpStyle, { width: 56 }) }),
             h("button", { onClick: doSave, style: { background: "#3C82F6", border: "none", color: "#fff", borderRadius: 5, padding: "3px 10px", fontSize: 11, cursor: "pointer" } }, "保存"),
-            h("span", { style: { fontSize: 9.5, opacity: .5 } }, ed.msg || (running > 0 ? "运行中·下次生效" : "下次运行生效"))
+            h("span", { style: { fontSize: 9.5, opacity: .5 } }, ed.msg || (running > 0 ? "运行中·下次下发生效" : "下次下发生效"))
           )
         ) : null,
         roster.pills.map(function (p, i) { return h(Pill, { key: "p" + p.seq, pill: p, onOpen: onOpen, delay: i * 30 }); }),
@@ -526,6 +591,7 @@ window.__ModuleLoader__.load({
         return function () { ro.disconnect(); };
       }, []);
       const settings = useSettings();
+      const overrides = useOverrides();
       const models = useModels(props.loadModels);
       React.useEffect(function () {
         let stop = false;
@@ -551,16 +617,43 @@ window.__ModuleLoader__.load({
           body: JSON.stringify({ runId: runId })
         }).catch(function () {});
       };
+      const clearingSt = React.useState(false);
+      const clearing = clearingSt[0], setClearing = clearingSt[1];
+      const onDeleteAll = function () {
+        if (clearing) return;
+        const n = runs.length;
+        if (!n) return;
+        if (!confirm("删除全部 " + n + " 条运行记录？\n（含持久化存档，重启后也不会再出现；仍在运行的 workflow 会随新事件重新出现）")) return;
+        setClearing(true);
+        fetch("api/workflow-timeline/delete-all", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}"
+        })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) {
+            if (j && j.ok) setData(function (d) { return Object.assign({}, d, { runs: [] }); });
+          })
+          .catch(function () {})
+          .then(function () { setClearing(false); });
+      };
       return h("div", { ref: rootRef, className: "wft-panel" + (narrow ? " narrow" : "") },
         h("div", { className: "wft-head" },
           h("span", { className: "wft-live" + (anyRunning ? " running" : "") }),
           h("span", { className: "wft-title" }, "工作流时间线"),
-          h("span", { className: "wft-sub" }, runs.length + " runs · " + totalAgents + " agents" + (data.ok ? "" : " · 离线"))
+          h("span", { className: "wft-sub" }, runs.length + " runs · " + totalAgents + " agents" + (data.ok ? "" : " · 离线")),
+          h("span", { className: "wft-head-spacer" }),
+          runs.length > 0 ? h("button", {
+            className: "wft-clear",
+            title: "批量删除：清空下方全部运行记录（含持久化存档）",
+            disabled: clearing,
+            onClick: onDeleteAll
+          }, clearing ? "清空中…" : "🗑 清空全部") : null
         ),
         h("div", { className: "wft-scroll" },
           runs.length === 0
-            ? h("div", { className: "wft-empty" }, "还没有工作流运行。\n让模型调用 workflow 工具（多代理编排）后，这里会出现横向时间线，每个阶段可点 ⚙ 配置模型与并发。")
-            : runs.slice().reverse().map(function (r) { return h(RunCard, { key: r.id, run: r, onOpen: onOpen, settings: settings, models: models, onDelete: onDelete }); })
+            ? h("div", { className: "wft-empty" }, "还没有工作流运行。\n让模型调用 workflow 工具（多代理编排）后，这里会出现横向时间线，每个阶段可点 ⚙ 配置模型与并发——模型保存写入覆盖文件，Router 下发时自动套用，下次下发生效。")
+            : runs.slice().reverse().map(function (r) { return h(RunCard, { key: r.id, run: r, onOpen: onOpen, settings: settings, overrides: overrides, models: models, onDelete: onDelete }); })
         )
       );
     }
@@ -746,7 +839,7 @@ window.__ModuleLoader__.load({
             key: "workflow-timeline"
           }, function () { return h("span", null, "工作流时间线"); });
         }, "右栏 title"));
-        console.log("[workflow-timeline] v4 面板已注册（sidebar + main，表情状态机）");
+        console.log("[workflow-timeline] v6 面板已注册（sidebar + main，phase 覆盖 + 清空全部）");
       } catch (error) {
         console.warn("[workflow-timeline] 注册失败:", String((error && error.message) || error));
       }

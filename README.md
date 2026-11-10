@@ -12,6 +12,7 @@ ZCode 风格的 DeepSeek Harness 工作流时间线面板：把 workflow 的阶�
 - **药丸交互**：子代理药丸点击直达其会话（右栏 subagentchat，主会话兜底）；完成态自动折叠、点击展开
 - **三入口**：侧边栏图标 + 中心面板 + 右栏页签（guide 菜单条目）
 - **阶段级配置**：每阶段 ⚙ 可配模型与并发（继承宿主模型目录）
+- **🗑 清空全部（v1.1.0）**：面板头部一键批量删除全部运行记录——确认后立即落盘，重启/断电都不会复活；单条 ✕ 删除保留
 - **历史持久化**：运行记录落盘，重启不丢，随时回看（含嵌套 workflow 的运行——会话卡片看不到的那种）
 
 ## 📦 安装
@@ -33,6 +34,7 @@ dsh plugin --profile <你的profile> add dsh-workflow-timeline
 
 host 半订阅宿主 `workflow/*` 引擎事件（`workflow/start`、`workflow/phase`、`workflow/agent-start`、
 `workflow/agent-end`、`workflow/end`），在内存中聚合运行状态并防抖持久化到 `~/.dsh/workflow-timeline-runs.json`；
+删除类操作（单条/清空全部）绕过防抖立即落盘，保证秒重启也不复活；
 client 半从 `/api/workflow-timeline/runs` 快照渲染时间线。
 
 **能看到嵌套 workflow**：会话内嵌套发起的 workflow（PTC/工具链深处）不会出现在会话顶层卡片上，
@@ -47,3 +49,9 @@ client 半从 `/api/workflow-timeline/runs` 快照渲染时间线。
 ## 📄 License
 
 [MIT](./LICENSE)
+
+## 🗒 更新记录
+
+- **v1.1.0**（2026-11-10）：头部新增「🗑 清空全部」批量删除，删除操作立即落盘（不走防抖）；修复兜底扫描的周期性空写盘
+- **v1.0.0**（2026-11-09）：首次公开发布
+
